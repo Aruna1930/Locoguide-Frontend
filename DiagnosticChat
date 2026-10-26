@@ -1,0 +1,148 @@
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+class DiagnosticChatScreen extends StatefulWidget {
+  const DiagnosticChatScreen({super.key});
+
+  @override
+  State<DiagnosticChatScreen> createState() => _DiagnosticChatScreenState();
+}
+
+class _DiagnosticChatScreenState extends State<DiagnosticChatScreen> {
+  final TextEditingController _controller = TextEditingController();
+  final List<Map<String, String>> _messages = [];
+  final SupabaseClient _supabase = Supabase.instance.client;
+  bool _isLoading = false;
+
+  Future<void> _handleDiagnosticSearch(String userQuery) async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      String matchedCategory = 'System Installation & Components';
+      
+      if (userQuery.toLowerCase().contains('tread') || 
+          userQuery.toLowerCase().contains('wheel') || 
+          userQuery.toLowerCase().contains('brake2')) {
+        matchedCategory = 'Tread Brake Mechanical Actuation';
+      } else if (userQuery.toLowerCase().contains('leak') || 
+                 userQuery.toLowerCase().contains('pressure') || 
+                 userQuery.toLowerCase().contains('drop')) {
+        matchedCategory = 'Pneumatic Leak';
+      }
+
+      final data = await _supabase
+          .from('diagnostic_media')
+          .select('fault_category, video_clip_url')
+          .eq('fault_category', matchedCategory)
+          .maybeSingle();
+
+      setState(() {
+        if (data != null) {
+          _messages.add({
+            'sender': 'ai',
+            'text': 'Found dynamic matching asset data for: ${data['fault_category']}.\n\nPlayback URL:\n${data['video_clip_url']}',
+          });
+        } else {
+          _messages.add({
+            'sender': 'ai',
+            'text': 'Unable to locate video resource matching that diagnostic category.',
+          });
+        }
+      });
+    } catch (error) {
+      setState(() {
+        _messages.add({
+          'sender': 'ai',
+          'text': 'Database connection error encountered: $error',
+        });
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _sendMessage() {
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+
+    setState(() {
+      _messages.add({
+        'sender': 'worker',
+        'text': text,
+      });
+    });
+    
+    _controller.clear();
+    _handleDiagnosticSearch(text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('LocoGuide Smart Assistant'),
+        backgroundColor: Colors.blueGrey,
+        foregroundColor: Colors.white,
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.all(16.0),
+              itemCount: _messages.length,
+              itemBuilder: (context, index) {
+                final msg = _messages[index];
+                final isWorker = msg['sender'] == 'worker';
+                return Align(
+                  alignment: isWorker ? Alignment.centerRight : Alignment.centerLeft,
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(vertical: 4.0),
+                    padding: const EdgeInsets.all(12.0),
+                    decoration: BoxDecoration(
+                      color: isWorker ? Colors.blue.shade100 : Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(8.0),
+                    ),
+                    child: Text(
+                      msg['text']!,
+                      style: const TextStyle(fontSize: 16.0, color: Colors.black87),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8.0),
+              child: CircularProgressIndicator(),
+            ),
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    decoration: const InputDecoration(
+                      hintText: 'Describe brake fault symptoms...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8.0),
+                IconButton(
+                  icon: const Icon(Icons.send, color: Colors.blueGrey),
+                  onPressed: _sendMessage,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
